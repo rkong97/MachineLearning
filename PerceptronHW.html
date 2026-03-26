@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Web Perceptron (L vs T)</title>
+  <style>
+    body{font-family:system-ui;background:#0b0f14;color:#e9eef7;margin:20px}
+    .row{display:flex;gap:18px;flex-wrap:wrap}
+    .card{background:#101826;border:1px solid #223046;border-radius:12px;padding:14px}
+    #grid{display:grid;grid-template-columns:repeat(5,60px);gap:10px}
+    .cell{width:60px;height:60px;border-radius:14px;background:#1f2a3a;border:1px solid #223046;cursor:pointer}
+    .cell.on{background:#e9eef7}
+    button,label{padding:8px 10px;border-radius:10px;border:1px solid #223046;background:#121924;color:#e9eef7;cursor:pointer}
+    button:hover,label:hover{background:#172235}
+    input[type=file]{display:none}
+    pre{white-space:pre-wrap;background:#0f1620;border:1px solid #223046;border-radius:12px;padding:10px;margin-top:10px}
+    .small{color:#a9b4c5;font-size:13px}
+  </style>
+</head>
+
+<body>
+  <h2>Web Perceptron (L vs T)</h2>
+  <div class="small">Draw by clicking squares. Save 100+ samples, then Train and Predict. Labels: L=0, T=1</div>
+
+  <div class="row" style="margin-top:14px">
+    <div class="card">
+      <h3>Input Grid</h3>
+      <div id="grid"></div>
+
+      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+        <button id="clear">Clear</button>
+        <button id="saveL">Save L</button>
+        <button id="saveT">Save T</button>
+        <button id="train">Train</button>
+        <button id="predict">Predict</button>
+        <button id="download">Download</button>
+        <label for="loadFile">Load<input id="loadFile" type="file" accept=".json"></label>
+      </div>
+
+      <pre id="log">Ready.</pre>
+    </div>
+
+    <div class="card" style="min-width:320px">
+      <h3>Status</h3>
+      <div>Samples: <b id="count">0</b></div>
+      <div>L: <b id="lcount">0</b> | T: <b id="tcount">0</b></div>
+      <div style="margin-top:8px">Trained: <b id="trained">No</b></div>
+      <div style="margin-top:8px">Prediction: <b id="pred">—</b></div>
+      <pre id="wb">Weights: —</pre>
+    </div>
+  </div>
+
+  <script>
+    // -----------------------------
+    // UI: 5x5 grid
+    // -----------------------------
+    const N = 5;
+    const KEY = "LT_ds_v1";
+    const grid = document.getElementById("grid");
+    const log = document.getElementById("log");
+    const countEl = document.getElementById("count");
+    const lcountEl = document.getElementById("lcount");
+    const tcountEl = document.getElementById("tcount");
+    const trainedEl = document.getElementById("trained");
+    const predEl = document.getElementById("pred");
+    const wbEl = document.getElementById("wb");
+
+    const cells = [];
+    for (let i = 0; i < N*N; i++) {
+      const d = document.createElement("div");
+      d.className = "cell";
+      d.addEventListener("click", () => d.classList.toggle("on"));
+      cells.push(d);
+      grid.appendChild(d);
+    }
+
+    function msg(s){ log.textContent = s; }
+    function clearGrid(){ cells.forEach(c => c.classList.remove("on")); }
+
+    function xVec(){
+      return cells.map(c => c.classList.contains("on") ? 1 : 0);
+    }
+
+    // -----------------------------
+    // Dataset: stored in localStorage
+    // sample = { x: [0/1]*25, y: 0 or 1 }
+    // -----------------------------
+    function loadDS(){
+      const raw = localStorage.getItem(KEY);
+      return raw ? JSON.parse(raw) : [];
+    }
+    function saveDS(ds){
+      localStorage.setItem(KEY, JSON.stringify(ds));
+    }
+    let ds = loadDS();
+
+    function updateCounts(){
+      countEl.textContent = String(ds.length);
+      const L = ds.filter(s => s.y === 0).length;
+      const T = ds.filter(s => s.y === 1).length;
+      lcountEl.textContent = String(L);
+      tcountEl.textContent = String(T);
+    }
+    updateCounts();
+
+    // -----------------------------
+    // Perceptron
+    // -----------------------------
+    let w = null;
+    let b = 0;
+    let trained = false;
+
+    function act(z){ return z >= 0 ? 1 : 0; }
+    function dot(a, b){
+      let s = 0;
+      for (let i = 0; i < a.length; i++) s += a[i] * b[i];
+      return s;
+    }
+
+    function fit(X, y, lr=0.1, epochs=60){
+      let w = new Array(X[0].length).fill(0);
+      let b = 0;
+
+      for (let ep = 0; ep < epochs; ep++){
+        // shuffle indices
+        const idxs = [...Array(X.length).keys()];
+        for (let i = idxs.length - 1; i > 0; i--){
+          const j = Math.floor(Math.random() * (i + 1));
+          [idxs[i], idxs[j]] = [idxs[j], idxs[i]];
+        }
+
+        for (const i of idxs){
+          const z = dot(X[i], w) + b;
+          const yh = act(z);
+          const err = (yh - y[i]);
+          for (let j = 0; j < w.length; j++){
+            w[j] = w[j] - lr * err * X[i][j];
+          }
+          b = b - lr * err;
+        }
+      }
+      return {w, b};
+    }
+
+    function showWeights(){
+      if (!w){ wbEl.textContent = "Weights: —"; return; }
+      const lines = [];
+      for (let r = 0; r < N; r++){
+        const row = w.slice(r*N, (r+1)*N).map(v => (v>=0?"+":"") + v.toFixed(1));
+        lines.push(row.join(" "));
+      }
+      wbEl.textContent = "Weights (5x5):\n" + lines.join("\n") + "\nBias: " + (b>=0?"+":"") + b.toFixed(2);
+    }
+
+    // -----------------------------
+    // Buttons
+    // -----------------------------
+    document.getElementById("clear").addEventListener("click", () => {
+      clearGrid();
+      msg("Cleared.");
+    });
+
+    function saveSample(label){
+      const x = xVec();
+      const ones = x.reduce((a,v)=>a+v,0);
+      if (ones === 0){ msg("Grid empty. Draw first."); return; }
+      ds.push({x, y: label});
+      saveDS(ds);
+      updateCounts();
+      msg(`Saved ${label===0?"L":"T"}. Total ${ds.length}.`);
+    }
+
+    document.getElementById("saveL").addEventListener("click", () => saveSample(0));
+    document.getElementById("saveT").addEventListener("click", () => saveSample(1));
+
+    document.getElementById("train").addEventListener("click", () => {
+      if (ds.length < 100){
+        msg(`Need 100+ samples. You have ${ds.length}.`);
+        return;
+      }
+      const X = ds.map(s => s.x);
+      const y = ds.map(s => s.y);
+      const out = fit(X, y, 0.1, 60);
+      w = out.w; b = out.b;
+      trained = true;
+      trainedEl.textContent = "Yes";
+      predEl.textContent = "—";
+      showWeights();
+      msg("Trained. Draw a new letter and click Predict.");
+    });
+
+    document.getElementById("predict").addEventListener("click", () => {
+      if (!trained){ msg("Train first."); return; }
+      const x = xVec();
+      const ones = x.reduce((a,v)=>a+v,0);
+      if (ones === 0){ msg("Draw first."); return; }
+      const yhat = act(dot(x, w) + b);
+      predEl.textContent = (yhat === 1 ? "T" : "L");
+      msg(`Prediction: ${yhat === 1 ? "T" : "L"}`);
+    });
+
+    document.getElementById("download").addEventListener("click", () => {
+      const content = JSON.stringify(ds, null, 2);
+      const blob = new Blob([content], {type: "application/json"});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "LT_dataset.json";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      msg("Downloaded LT_dataset.json");
+    });
+
+    document.getElementById("loadFile").addEventListener("change", async (ev) => {
+      const file = ev.target.files[0];
+      if (!file) return;
+      const txt = await file.text();
+      ds = JSON.parse(txt);
+      saveDS(ds);
+      updateCounts();
+      trained = false;
+      trainedEl.textContent = "No";
+      predEl.textContent = "—";
+      w = null; b = 0;
+      showWeights();
+      msg(`Loaded ${ds.length} samples.`);
+      ev.target.value = "";
+    });
+
+    msg("Ready. Draw and Save L/T. Collect 100+, then Train.");
+  </script>
+</body>
+</html>
